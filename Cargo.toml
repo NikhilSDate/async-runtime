@@ -1,0 +1,9 @@
+[package]
+name = "runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+crossbeam-channel = "0.5.16"
+futures = "0.3.34"
+mio = { version = "1", features = ["os-poll", "net", "os-ext"] }
