@@ -5,6 +5,7 @@ use runtime::config::Config;
 use runtime::executor::Runtime;
 use runtime::net::udp::UdpSocket;
 use runtime::spawn;
+use futures::join;
 
 async fn echo(addr: SocketAddr) {
     let mut socket = UdpSocket::bind(addr).unwrap();
@@ -24,7 +25,11 @@ fn main() {
     runtime.block_on(async {
         let first = spawn(echo("127.0.0.1:9000".parse().unwrap()));
         let second = spawn(echo("127.0.0.1:9001".parse().unwrap()));
-        first.await;
-        second.await;
-    });
+        join!(first, second)
+    });        
 }
+
+// f1
+// f2
+// select!(f1, f2)
+// 

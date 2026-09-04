@@ -4,14 +4,27 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
-enum State<T> {
+// The status of a spawned task as observed by its JoinHandle.
+enum TaskStatus<T> {
     Pending,
     Waiting(Waker),
     Done(T),
 }
 
 struct Shared<T> {
-    state: Mutex<State<T>>,
+    status: Mutex<TaskStatus<T>>,
+}
+
+impl<T> Shared<T> {
+    fn complete(&self, value: T) {
+        let waker = match mem::replace(&mut *self.status.lock().unwrap(), TaskStatus::Done(value)) {
+            TaskStatus::Waiting(waker) => Some(waker),
+            TaskStatus::Pending | TaskStatus::Done(_) => None,
+        };
+        if let Some(waker) = waker {
+            waker.wake();
+        }
+    }
 }
 
 pub struct JoinHandle<T> {
@@ -22,11 +35,11 @@ impl<T> Future for JoinHandle<T> {
     type Output = T;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
-        let mut state = self.shared.state.lock().unwrap();
-        match mem::replace(&mut *state, State::Pending) {
-            State::Done(value) => Poll::Ready(value),
-            State::Pending | State::Waiting(_) => {
-                *state = State::Waiting(cx.waker().clone());
+        let mut status = self.shared.status.lock().unwrap();
+        match mem::replace(&mut *status, TaskStatus::Pending) {
+            TaskStatus::Done(value) => Poll::Ready(value),
+            TaskStatus::Pending | TaskStatus::Waiting(_) => {
+                *status = TaskStatus::Waiting(cx.waker().clone());
                 Poll::Pending
             }
         }
@@ -44,20 +57,14 @@ where
     T: Send + Sync + 'static,
 {
     let shared = Arc::new(Shared {
-        state: Mutex::new(State::Pending),
+        status: Mutex::new(TaskStatus::Pending),
     });
     let handle = JoinHandle {
         shared: shared.clone(),
     };
     let wrapped = async move {
         let value = future.await;
-        let waker = match mem::replace(&mut *shared.state.lock().unwrap(), State::Done(value)) {
-            State::Waiting(waker) => Some(waker),
-            State::Pending | State::Done(_) => None,
-        };
-        if let Some(waker) = waker {
-            waker.wake();
-        }
+        shared.complete(value);
     };
     (wrapped, handle)
 }

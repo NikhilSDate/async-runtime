@@ -113,3 +113,8 @@ impl Reactor {
         }
     }
 }
+
+// executor runs tasks
+// tasks block on IO
+// reactor responds to IO events from the OS
+// reactor wakes up tasks and puts on ready queue
